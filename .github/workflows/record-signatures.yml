@@ -1,0 +1,53 @@
+name: Record signatures
+
+# Runs AFTER a Mill signature is merged to main. The pull_request_target
+# validator deliberately never checks out or writes anything (that is what
+# keeps it safe against fork code), so it cannot stamp the file. This workflow
+# does: it records which org insider signed, how they were verified, and when,
+# then commits the evidence back. Weavers are not stamped; their filename is the
+# identity and git history is the date.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'signatories/mills/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: record-signatures
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Never react to our own attestation commit (belt-and-suspenders with [skip ci]).
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.sha }}
+      BEFORE: ${{ github.event.before }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Stamp Mill verification
+        run: bash .github/scripts/record.sh
+
+      - name: Commit evidence
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Nothing to record."
+            exit 0
+          fi
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A signatories
+          git commit -m 'chore: record Mill verification [skip ci]'
+          git push
