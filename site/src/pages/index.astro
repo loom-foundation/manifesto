@@ -1,0 +1,151 @@
+---
+import { getCollection, getEntry, render } from 'astro:content';
+import Layout from '../layouts/Layout.astro';
+
+const entry = await getEntry('manifesto', 'manifesto');
+if (!entry) throw new Error('manifesto.md not found via content collection');
+const { Content } = await render(entry);
+
+const { title } = entry.data;
+const description = 'A manifesto on building products from clear intent. When machines build at speed, clarity becomes the craft. Product is intent realised.';
+
+// --- Signatories ------------------------------------------------------
+// The public repository that receives signature pull requests, used to
+// build the pre-filled "new file" links. It is the same repo the site is
+// published from; signatories open PRs into its `signatories/` directory.
+const SIGNATORIES_REPO = 'loom-foundation/manifesto';
+const SIGNATORIES_BRANCH = 'main';
+
+// Earliest signatures first; entries without a date fall to the end,
+// tie-broken by handle/slug so the build is stable.
+const byDateThenId = (a: { data: { signed?: Date }; id: string }, b: { data: { signed?: Date }; id: string }) =>
+  (a.data.signed?.getTime() ?? Infinity) - (b.data.signed?.getTime() ?? Infinity) ||
+  a.id.localeCompare(b.id);
+
+const weavers = (await getCollection('weavers')).sort(byDateThenId);
+const mills = (await getCollection('mills')).sort(byDateThenId);
+
+// A Mill is keyed by its path `mills/<org>/<team>`: the org is the verifiable
+// anchor (drives the mark and the link), the team slug is a self-asserted label.
+const millOrg = (m: (typeof mills)[number]) => m.id.split('/')[0];
+const millTeam = (m: (typeof mills)[number]) => m.id.split('/').slice(1).join('/') || m.id;
+const millName = (m: (typeof mills)[number]) => m.data.name ?? millTeam(m);
+const millHref = (m: (typeof mills)[number]) => `https://github.com/${millOrg(m)}`;
+// The mark: an explicit logo override, else the org's GitHub avatar.
+const millMark = (m: (typeof mills)[number]) =>
+  m.data.logo ?? `https://github.com/${millOrg(m)}.png?size=176`;
+
+// Pre-filled "new file" pull requests: the signer edits the placeholder path
+// and submits. No fork dance, no backend; the signature arrives as a note. Each
+// scaffold hard-codes the right path shape, so the two Mill cases each get their
+// own link rather than asking the signer to reshape a path by hand.
+const weaverTemplate = `<!--\n  This file's name is your signature: signatories/weavers/<your-handle>.md\n  Nothing else is required; your name, avatar, and profile link come from your\n  GitHub account. Optionally add a display name:\n  ---\n  name: Ada Lovelace\n  ---\n-->\n`;
+const millTeamTemplate = `<!--\n  Your signature is this file's path:\n    signatories/mills/<your-org>/<your-team>.md\n  Replace <your-org> with your GitHub org handle and <your-team> with a short\n  team slug. Sign from your own account; a public member of the org is the whole\n  check. Leave the file empty, or add a display label:\n  ---\n  name: Your Team\n  ---\n  (Private org membership? See the README for the one extra step.)\n-->\n`;
+const millOrgTemplate = `<!--\n  Your signature is this file's path:\n    signatories/mills/<your-org>.md\n  Replace <your-org> with your GitHub org handle. Sign from your own account; a\n  public member of the org is the whole check. Leave the file empty, or add a\n  display label:\n  ---\n  name: ACME\n  ---\n  (Private org membership? See the README for the one extra step.)\n-->\n`;
+const newFileUrl = (path: string, template: string) =>
+  `https://github.com/${SIGNATORIES_REPO}/new/${SIGNATORIES_BRANCH}` +
+  `?filename=${encodeURIComponent(path)}&value=${encodeURIComponent(template)}`;
+const weaverSignUrl = newFileUrl('signatories/weavers/YOUR-HANDLE.md', weaverTemplate);
+const millTeamSignUrl = newFileUrl('signatories/mills/YOUR-ORG/YOUR-TEAM.md', millTeamTemplate);
+const millOrgSignUrl = newFileUrl('signatories/mills/YOUR-ORG.md', millOrgTemplate);
+
+// Degrade gracefully: the "Signatories" section heading and the call to
+// sign are always shown, so a fresh site with an empty roster still reads
+// as intended. Only the per-tier sub-headings (The Mills / The Weavers)
+// and their rosters appear once someone has signed.
+---
+
+<Layout title={title} description={description} canonicalPath="/">
+  <Content />
+
+  <section class="signatories" aria-label="Signatories">
+    <h2>Signatories</h2>
+
+    {mills.length > 0 && (
+      <section class="tier" aria-labelledby="mills-title">
+        <h3 id="mills-title">The Mills</h3>
+        <ul class="roster roster--mills">
+          {mills.map((m) => {
+            const mark = millMark(m);
+            const name = millName(m);
+            return (
+              <li class="mark mark--mill">
+                <a href={millHref(m)} target="_blank" rel="noopener" title={name}>
+                  {mark ? (
+                    <img src={mark} alt={name} width="88" height="88" loading="lazy" />
+                  ) : (
+                    <span class="mark__initials" aria-hidden="true">{name.slice(0, 2)}</span>
+                  )}
+                  <span class="mark__name">{name}</span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    )}
+
+    {weavers.length > 0 && (
+      <section class="tier" aria-labelledby="weavers-title">
+        <h3 id="weavers-title">The Weavers</h3>
+        <ul class="roster roster--weavers">
+          {weavers.map((w) => {
+            // The handle IS the filename; the `github` field is an optional override.
+            const handle = w.data.github ?? w.id;
+            const name = w.data.name ?? handle;
+            const role = w.data.role ?? 'Weaver';
+            return (
+              <li class="mark mark--weaver">
+                <a
+                  href={`https://github.com/${handle}`}
+                  target="_blank"
+                  rel="noopener"
+                  title={`${name} — ${role}`}
+                  aria-label={`${name}, ${role}`}
+                >
+                  <img
+                    src={`https://github.com/${handle}.png?size=160`}
+                    alt={name}
+                    width="64"
+                    height="64"
+                    loading="lazy"
+                  />
+                  <span class="mark__name">{name}</span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    )}
+
+    {/* The call to sign closes the section: social proof first, then the ask. */}
+    <div class="sign">
+      <a class="sign-cta" href={weaverSignUrl}>Sign the manifesto</a>
+      <p class="sign-note">
+        Signing creates a pull request from your GitHub account.<br />
+        Signing for a group? Sign as{' '}
+        <a class="sign-alt" href={millTeamSignUrl}>a team</a> or{' '}
+        <a class="sign-alt" href={millOrgSignUrl}>a whole organisation</a>.
+      </p>
+    </div>
+  </section>
+
+  {/* Site footer. The canonical CC BY-ND line, lifted out of the manifesto
+      body by remark-strip-copyright and re-presented here as chrome — the
+      text is verbatim from manifesto.md, only its placement is the site's. */}
+  <footer class="colophon">
+    <p>
+      <small>
+        {/* Explicit {' '} spacers: Astro's JSX-style whitespace handling trims
+            the space in `by␤<a>` etc., so inter-word/link spacing is made literal. */}
+        <a href="https://theloommanifesto.org">The Loom Manifesto</a> © 2026 by{' '}
+        <a href="https://bruno.blissful.im">Bruno Almeida do Lago</a> is licensed under{' '}
+        <a href="https://creativecommons.org/licenses/by-nd/4.0/">CC BY-ND 4.0</a>{' '}
+        <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="CC" width="16" height="16" style="height:1.2em; vertical-align:middle;" />{' '}
+        <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="BY" width="16" height="16" style="height:1.2em; vertical-align:middle;" />{' '}
+        <img src="https://mirrors.creativecommons.org/presskit/icons/nd.svg" alt="ND" width="16" height="16" style="height:1.2em; vertical-align:middle;" />
+      </small>
+    </p>
+  </footer>
+</Layout>
