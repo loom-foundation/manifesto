@@ -1,3 +1,3 @@
 ---
-name: Bruno Almeida do Lago
+name: Bruno Lago
 ---
